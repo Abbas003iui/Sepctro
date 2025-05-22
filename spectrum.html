@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Light Spectrum Analyzer</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    body { font-family: Arial, padding: 20px; text-align: center; }
+    canvas { margin-top: 20px; max-width: 100%; border: 1px solid #ccc; }
+    input[type=file] { margin-top: 10px; }
+  </style>
+</head>
+<body>
+  <h2>Light Spectrum Analyzer</h2>
+  <p>Select or capture a photo to analyze light spectrum:</p>
+  <input type="file" accept="image/*" onchange="loadImage(event)" capture="environment">
+  <canvas id="imageCanvas" width="600" height="150"></canvas>
+  <canvas id="chartCanvas" width="600" height="300"></canvas>
+  <p id="peakInfo"></p>
+
+  <script>
+    const imgCanvas = document.getElementById("imageCanvas");
+    const imgCtx = imgCanvas.getContext("2d");
+    const chartCtx = document.getElementById("chartCanvas").getContext("2d");
+    let chart;
+
+    function loadImage(event) {
+      const reader = new FileReader();
+      reader.onload = function (e) {
+        const img = new Image();
+        img.onload = () => {
+          // Resize image to canvas width
+          imgCtx.clearRect(0, 0, imgCanvas.width, imgCanvas.height);
+          imgCtx.drawImage(img, 0, 0, imgCanvas.width, imgCanvas.height);
+          analyzeSpectrum();
+        };
+        img.src = e.target.result;
+      };
+      reader.readAsDataURL(event.target.files[0]);
+    }
+
+    function estimateWavelength(r, g, b) {
+      if (b > r && b > g) return 470;
+      if (g > r && g > b) return 530;
+      if (r > g && r > b) return 650;
+      return 500;
+    }
+
+    function analyzeSpectrum() {
+      const y = Math.floor(imgCanvas.height / 2);
+      const width = imgCanvas.width;
+      let spectrum = [];
+      let maxIntensity = 0;
+
+      for (let x = 0; x < width; x += 2) {
+        const pixel = imgCtx.getImageData(x, y, 1, 1).data;
+        const r = pixel[0], g = pixel[1], b = pixel[2];
+        const intensity = (r + g + b) / 3;
+        const wavelength = estimateWavelength(r, g, b);
+        maxIntensity = Math.max(maxIntensity, intensity);
+        spectrum.push({ wavelength, intensity });
+      }
+
+      // Group by wavelength
+      let absorbance = {};
+      spectrum.forEach(p => {
+        const A = -Math.log10((p.intensity + 1) / (maxIntensity + 1)); // Avoid log(0)
+        absorbance[p.wavelength] = (absorbance[p.wavelength] || 0) + A;
+      });
+
+      // Prepare chart data
+      const labels = Object.keys(absorbance).map(Number).sort((a, b) => a - b);
+      const values = labels.map(w => absorbance[w]);
+
+      const peakIndex = values.indexOf(Math.max(...values));
+      const peakWavelength = labels[peakIndex];
+      const peakAbsorbance = values[peakIndex].toFixed(2);
+
+      document.getElementById("peakInfo").innerText = 
+        `Highest Peak: ${peakAbsorbance} at ${peakWavelength} nm`;
+
+      if (chart) chart.destroy();
+      chart = new Chart(chartCtx, {
+        type: 'line',
+        data: {
+          labels,
+          datasets: [{
+            label: 'Absorbance vs Wavelength',
+            data: values,
+            borderColor: 'blue',
+            borderWidth: 2,
+            fill: false,
+            pointRadius: 2
+          }]
+        },
+        options: {
+          responsive: true,
+          plugins: {
+            legend: { display: true },
+            tooltip: { mode: 'index', intersect: false }
+          },
+          scales: {
+            x: {
+              title: { display: true, text: 'Wavelength (nm)' }
+            },
+            y: {
+              title: { display: true, text: 'Absorbance' }
+            }
+          }
+        }
+      });
+    }
+  </script>
+</body>
+</html>
